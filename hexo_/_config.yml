@@ -99,4 +99,14 @@ theme: next
 # Deployment
 ## Docs: https://hexo.io/docs/deployment.html
 deploy:
-  type: ''
+  type: git
+  repo: git@midray.v1me.cn:blog.git
+  branch: master
+
+# Local Search
+search:
+  path: search.xml
+  field: post
+  format: html
+  limit: 10000
+
