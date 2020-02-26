@@ -94,9 +94,9 @@ footer:
 # CC licenses are available in 39 languages, you can find the specific and correct abbreviation you need on https://creativecommons.org
 creative_commons:
   license: by-nc-sa
-  sidebar: false
-  post: false
-  language:
+  sidebar: true
+  post: true
+  language: deed.zh
 
 
 # ---------------------------------------------------------------
@@ -208,7 +208,11 @@ links:
     V1me的个人主页: https://www.v1me.cn
     Ertuilの博客: https://blog.ertuil.top
     Hustcw's Blog: https://blog.wh98.me
-
+    负一の平方根的博客: https://sqrt-1.me
+    Sirius's Home: https://sirius1242.github.io
+    Volltin's Blog: https://blog.volltin.com
+    Taoky's Blog: https://blog.taoky.moe
+    iBug's Home: https://ibugone.com
 
 # Table of Contents in the Sidebar
 # Front-matter variable (unsupport wrap expand_all).
