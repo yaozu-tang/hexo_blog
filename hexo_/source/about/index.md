@@ -5,6 +5,5 @@ type: "about"
 comments: false
 ---
 
+访问[V1me的主页](https://www.v1me.cn/)了解关于作者的更多信息
 
-- 穷学生
-- 九流pwn手
