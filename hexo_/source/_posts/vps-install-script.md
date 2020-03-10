@@ -2,7 +2,7 @@
 title: VPS（国外）一键(不)部署脚本
 date: 2020-02-19 23:20:48
 tags: ["linux", "vps", "script"]
-categories: Linux运维
+categories: Linux日常折腾
 ---
 
 每次部署vps都要平白耗掉人生中的5个小时 为什么不自动化呢？

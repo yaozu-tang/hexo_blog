@@ -136,7 +136,7 @@ function! myspacevim#before() abort
 endfunction
 ```
 
-#### 安装`tbodt/deoplete-tabnine`
+### 安装`tbodt/deoplete-tabnine`
 
 编辑`~/.SpaceVim.d/init.toml`
 
@@ -432,6 +432,12 @@ name = "denite"
 ```
 function! myspacevim#before() abort
     let g:deoplete#enable_at_startup = 1
+    " CTRL-X and SHIFT-Del are Cut
+    vnoremap <C-X> "+x
+    vnoremap <S-Del> "+x
+    " CTRL-C and CTRL-Insert are Copy
+    vnoremap <C-C> "+y
+    vnoremap <C-Insert> "+y
 endfunction
 ```
 
