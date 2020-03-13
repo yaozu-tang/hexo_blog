@@ -4,11 +4,10 @@ date: 2020-03-12 01:31:22
 tags:
 - pwn
 - glibc
+- ctf
 categories: CTF
 description: 现在新题很多用到GLIBC-2.29和GLIBC-2.30 在这里尝试做个总结
 ---
-
-[toc]
 
 ## GLIBC-2.29
 
