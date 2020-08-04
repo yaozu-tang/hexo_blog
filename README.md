@@ -3,5 +3,5 @@
 :)
 
 This repo contains the source code of V1me's blog.
-Vist my blog at https://blog.v1me.cn
+Visit my blog at https://blog.v1me.cn
 :)
